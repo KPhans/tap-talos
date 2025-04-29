@@ -1,0 +1,41 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+        "Currency": { "type": "string" },
+        "Market": { "type": "string" },
+        "Account": { "type": "string" },
+        "Amount": { "type": "string" },
+        "AvailableAmount": { "type": "string" },
+        "AvailableMargin": { "type": "string" },
+        "OutstandingBuy": { "type": "string" },
+        "OutstandingSell": { "type": "string" },
+        "LastUpdateTime": { "type": "string", "format": "date-time" },
+        "Status": { "type": "string" },
+        "MarketAccountID": { "type": "integer" },
+        "YieldingAmount": { "type": "string" },
+        "ReconStatus": {
+            "type": "object",
+            "properties": {
+                "Revision": { "type": "integer" },
+                "TotalMismatch": { "type": "string" },
+                "LastMismatchTime": { "type": "string", "format": "date-time" },
+                "Status": { "type": "string" }
+            },
+            "required": ["Revision", "TotalMismatch", "Status"]
+        }
+    },
+    "required": [
+        "Currency",
+        "Market",
+        "Account",
+        "Amount",
+        "AvailableAmount",
+        "AvailableMargin",
+        "OutstandingBuy",
+        "OutstandingSell",
+        "LastUpdateTime",
+        "Status",
+        "MarketAccountID"
+    ]
+}

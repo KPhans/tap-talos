@@ -11,99 +11,132 @@ import base64
 from importlib import resources
 
 import requests
-from singer_sdk.authenticators import Authenticator
 from singer_sdk.helpers.jsonpath import extract_jsonpath
-from singer_sdk.pagination import BaseAPIPaginator
+from singer_sdk.pagination import BaseAPIPaginator  # noqa: TC002
 from singer_sdk.streams import RESTStream
 
 if t.TYPE_CHECKING:
     from singer_sdk.helpers.types import Context
 
+# TODO: Delete this if not using json files for schema definition
 SCHEMAS_DIR = resources.files(__package__) / "schemas"
 
 
-class TalosAuthenticator(Authenticator):
-    """Custom HMAC authenticator for Talos."""
-
-    def __init__(self, stream: RESTStream) -> None:
-        super().__init__(stream)
-        self.api_key = self.config.get("api_key")
-        self.api_secret = self.config.get("api_secret")
-        self.host = self.config.get("api_host")
-
-    def update_request_headers(self, request: requests.PreparedRequest) -> None:
-        """Add authentication headers to request."""
-        utc_now = datetime.datetime.utcnow()
-        utc_datetime = utc_now.strftime("%Y-%m-%dT%H:%M:%S.000000Z")
-
-        method = request.method
-        path = request.path_url.split('?')[0]
-
-        params = [
-            method,
-            utc_datetime,
-            self.host,
-            path,
-        ]
-
-        # Important: handle query params or body if necessary later
-        payload = "\n".join(params)
-        hashvalue = hmac.new(
-            self.api_secret.encode('ascii'), payload.encode('ascii'), hashlib.sha256
-        )
-        signature = base64.urlsafe_b64encode(hashvalue.digest()).decode()
-
-        request.headers.update({
-            "TALOS-KEY": self.api_key,
-            "TALOS-SIGN": signature,
-            "TALOS-TS": utc_datetime,
-        })
-
-
 class TalosStream(RESTStream):
-    """Base stream class for Talos."""
+    """Talos stream class."""
 
-    records_jsonpath = "$.data[*]"  # because the Talos API wraps in {"data": [...]}
+    records_jsonpath = "$.data[*]"
+    next_page_token_jsonpath = "$.next_page"  # noqa: S105
 
     @property
     def url_base(self) -> str:
+        """Return the API URL root, configurable via tap settings."""
         return f"https://{self.config.get('api_host')}"
 
     @property
-    def authenticator(self) -> TalosAuthenticator:
-        return TalosAuthenticator(self)
+    def use_pagination(self) -> bool:
+        """Return False because the endpoint is not paginated."""
+        return False
+
+    @property
+    def http_headers(self) -> dict:
+        """Return the HTTP headers needed.
+
+        Returns:
+            A dictionary of HTTP headers.
+        """
+        utc_now = datetime.datetime.utcnow()
+        utc_datetime = utc_now.strftime("%Y-%m-%dT%H:%M:%S.000000Z")
+        host = self.config.get("api_host")
+        api_key = self.config.get("api_key")
+        api_secret = self.config.get("api_secret")
+        path = self.path
+
+        method = "GET"
+
+        payload = "\n".join([
+            method,
+            utc_datetime,
+            host,
+            path,
+        ])
+
+        signature = base64.urlsafe_b64encode(
+            hmac.new(api_secret.encode('ascii'), payload.encode('ascii'), hashlib.sha256).digest()
+        ).decode()
+
+        headers = {
+            "TALOS-KEY": api_key,
+            "TALOS-SIGN": signature,
+            "TALOS-TS": utc_datetime,
+        }
+
+        return headers
 
     def get_new_paginator(self) -> BaseAPIPaginator:
-        """Talos endpoints don't paginate, so no paginator needed."""
+        """Create a new pagination helper instance.
+
+        Talos balances endpoint does not paginate.
+
+        Returns:
+            None
+        """
         return None
+
+    def request_records(self, context: dict | None) -> t.Iterator[dict]:
+        """Override request_records to NOT use paginator."""
+        self.logger.info("DEBUG: Sending request without pagination")
+
+        url = f"{self.url_base}{self.path}"
+        headers = self.http_headers
+
+        response = requests.get(url, headers=headers)
+
+        if not response.ok:
+            raise RuntimeError(f"Error fetching data: {response.status_code} - {response.text}")
+
+        yield from self.parse_response(response)
 
     def get_url_params(
         self,
-        context: Context | None,
-        next_page_token: t.Any | None,
+        context: Context | None,  # noqa: ARG002
+        next_page_token: t.Any | None,  # noqa: ANN401
     ) -> dict[str, t.Any]:
-        """No URL params needed for balances."""
+        """Return a dictionary of values to be used in URL parameterization."""
         return {}
 
     def prepare_request_payload(
         self,
-        context: Context | None,
-        next_page_token: t.Any | None,
+        context: Context | None,  # noqa: ARG002
+        next_page_token: t.Any | None,  # noqa: ARG002, ANN401
     ) -> dict | None:
-        """No payload for GET."""
+        """Prepare the data payload for the REST API request."""
         return None
 
-    def parse_response(self, response: requests.Response) -> t.Iterable[dict]:
-        """Parse the response and yield records."""
-        yield from extract_jsonpath(
-            self.records_jsonpath,
-            input=response.json(parse_float=decimal.Decimal),
-        )
+def parse_response(self, response: requests.Response) -> t.Iterator[dict]:
+    raw_records = extract_jsonpath(
+        self.records_jsonpath,
+        input=response.json(parse_float=decimal.Decimal),
+    )
 
-    def post_process(
-        self,
-        row: dict,
-        context: Context | None = None,
-    ) -> dict | None:
-        """Optionally modify records."""
-        return row
+    count = 0
+    for record in raw_records:
+        count += 1
+        record = self.post_process(record)
+
+        if self.replication_key and record.get(self.replication_key):
+            self._write_record_message(
+                record,
+                replication_key_value=record[self.replication_key]
+            )
+        else:
+            self._write_record_message(record)
+
+    self.logger.info(f"DEBUG: Emitted {count} records")
+    return iter(())
+
+
+    def write_record(self, record: dict) -> None:
+        """Emit a RECORD message to stdout."""
+        self.logger.debug(f"Writing record to stdout: {record}")
+        self._write_record_message(record)
