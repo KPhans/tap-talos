@@ -113,28 +113,22 @@ class TalosStream(RESTStream):
         """Prepare the data payload for the REST API request."""
         return None
 
-def parse_response(self, response: requests.Response) -> t.Iterator[dict]:
-    raw_records = extract_jsonpath(
-        self.records_jsonpath,
-        input=response.json(parse_float=decimal.Decimal),
-    )
+    def parse_response(self, response: requests.Response) -> t.Iterator[dict]:
+        """Parse the response and yield Singer RECORD messages."""
 
-    count = 0
-    for record in raw_records:
-        count += 1
-        record = self.post_process(record)
+        raw_records = extract_jsonpath(
+            self.records_jsonpath,
+            input=response.json(parse_float=decimal.Decimal),
+        )
 
-        if self.replication_key and record.get(self.replication_key):
-            self._write_record_message(
-                record,
-                replication_key_value=record[self.replication_key]
-            )
-        else:
-            self._write_record_message(record)
+        count = 0
+        for record in raw_records:
+            count += 1
+            self.logger.debug(f"Parsed record: {record}")
+            self.write_record(self.post_process(record))
 
-    self.logger.info(f"DEBUG: Emitted {count} records")
-    return iter(())
-
+        self.logger.info(f"DEBUG: Emitted {count} records")
+        return iter(())  # Important: yield an empty iterator
 
     def write_record(self, record: dict) -> None:
         """Emit a RECORD message to stdout."""
