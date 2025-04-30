@@ -123,14 +123,10 @@ class TalosStream(RESTStream):
 
         count = 0
         for record in raw_records:
-            count += 1
+            record = self.post_process(record)
             self.logger.debug(f"Parsed record: {record}")
-            self.write_record(self.post_process(record))
+            yield record
+            count += 1
 
         self.logger.info(f"DEBUG: Emitted {count} records")
-        return iter(())  # Important: yield an empty iterator
-
-    def write_record(self, record: dict) -> None:
-        """Emit a RECORD message to stdout."""
-        self.logger.debug(f"Writing record to stdout: {record}")
-        self._write_record_message(record)
+        return iter(())

@@ -16,8 +16,8 @@ SCHEMAS_DIR = resources.files(__package__) / "schemas"
 class BalancesStream(TalosStream):
     name = "balances"
     path = "/v1/balances"
-    primary_keys: t.ClassVar[list[str]] = ["Market", "Currency", "Account"]  # Add Account
-    replication_key = "LastUpdateTime"  # Use LastUpdateTime for incremental replication
+    primary_keys: t.ClassVar[list[str]] = ["Market", "Currency", "Account"]
+    replication_key = "LastUpdateTime"
     schema_filepath = SCHEMAS_DIR / "balances.json"
 
     @property
